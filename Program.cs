@@ -74,6 +74,53 @@ namespace ConsoleAppAPI_II_GigaChat
             // Начальное сообщение задаёт роль и стиль ответа ИИ
             Log.Debug("Системный промпт установлен, длина истории: {Count}", history.Count);
 
+            // Функции, которые мы РАЗРЕШАЕМ модели вызывать (имя + описание + схема аргументов).
+            var functions = new List<FunctionDef>
+            {
+                new("add_topic",
+                    "Добавляет тему в личный план изучения C#.",
+                    new
+                    {
+                        type = "object",
+                        properties = new
+                        {
+                            title    = new { type = "string", description = "Тема для изучения, напр. «делегаты»" },
+                            priority = new { type = "string", @enum = new[] { "высокий", "средний", "низкий" },
+                                             description = "Насколько важно изучить тему" },
+                            note     = new { type = "string", description = "Заметка/зачем изучать (свободная форма). Может отсутствовать." },
+                        },
+                        required = new[] { "title" },
+                    }),
+
+                new("list_topics",
+                    "Возвращает текущий план изучения ученика (что в плане и что уже изучено).",
+                    new { type = "object", properties = new { } }),
+
+                new("mark_studied",
+                    "Помечает тему в плане как изученную (когда ученик говорит, что разобрался с ней).",
+                    new
+                    {
+                        type = "object",
+                        properties = new
+                        {
+                            title = new { type = "string", description = "Какую тему из плана отметить изученной" },
+                        },
+                        required = new[] { "title" },
+                    }),
+
+                new("quiz_me",
+                    "Проводит мини-тест (1 вопрос с 4 вариантами) по заданной теме C# и проверяет ответ ученика.",
+                    new
+                    {
+                        type = "object",
+                        properties = new
+                        {
+                            topic = new { type = "string", description = "Тема теста, напр. «разница между struct и class»" },
+                        },
+                        required = new[] { "topic" },
+                    }),
+            };
+
             while (true) // Бесконечный цикл диалога
             {
                 Console.Write("Сообщение пользователя: ");
@@ -202,6 +249,7 @@ namespace ConsoleAppAPI_II_GigaChat
         record ChatMessage(string Role, string Content);  // Модель сообщения чата
         record ChatRequest(string Model, List<ChatMessage> Messages);  // Модель запроса к GigaChat
         record ChatResponse(List<Choice> Choices);  // Модель ответа от GigaChat
-        record Choice(ChatMessage Message); // Один вариант ответа (выбор)
+        record Choice(ChatMessage Message); // Один вариант ответа (выбор)      
+        record FunctionDef(string Name, string Description, object Parameters); // Описание функции для модели: имя, что делает, и схема параметров (JSON Schema).
     }
 }
