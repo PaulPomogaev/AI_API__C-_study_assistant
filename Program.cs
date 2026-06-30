@@ -123,7 +123,7 @@ namespace ConsoleAppAPI_II_GigaChat
                         {
                             topic = new { type = "string", description = "Тема теста, напр. «разница между struct и class»" },
                             difficulty = new { type = "string", @enum = new [] { "easy", "medium", "hard" },
-                                               description = "Желаемая слодность теста (по-умолчанию medium)"}
+                                               description = "Желаемая сложность теста (по-умолчанию medium)"}
                         },
                         required = new[] { "topic" },
                     }),
@@ -269,14 +269,33 @@ namespace ConsoleAppAPI_II_GigaChat
                     {
                         string topic = GetStr(call.Arguments, "topic") ?? "C#";
 
-                        string difficulty = GetStr(call.Arguments, "difficulty") ?? "medium";
-                        difficulty = difficulty switch
-                        {
-                            "easy" => "easy",
-                            "hard" => "hard",
-                            _ => "medium"
-                        };
+                        string difficulty = GetStr(call.Arguments, "difficulty");
 
+                        if (difficulty is null)
+                        {
+                            Console.WriteLine("Выбери сложность теста:");
+                            Console.WriteLine("  1. easy   (3 варианта)");
+                            Console.WriteLine("  2. medium (4 варианта)");
+                            Console.WriteLine("  3. hard   (5 вариантов)");
+                            Console.Write("Твой выбор (1-3): ");
+                            string choice = Console.ReadLine();
+                            difficulty = choice switch
+                            {
+                                "1" => "easy",
+                                "3" => "hard",
+                                _ => "medium"
+                            };
+                        }
+                        else
+                        {
+                            difficulty = difficulty switch
+                            {
+                                "easy" => "easy",
+                                "hard" => "hard",
+                                _ => "medium"
+                            };
+                        }
+                        
                         Console.WriteLine($"\n  [запускаю тест по теме: {topic}, сложность: {difficulty}]");
 
                         // (1) Структурированный вывод как ДВИЖОК инструмента: отдельный запрос
