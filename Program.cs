@@ -18,6 +18,9 @@ namespace ConsoleAppAPI_II_GigaChat
         {
             ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
         }); // Единственный экземпляр HttpClient на всё приложение
+
+        private static readonly List<StudyTopic> plan = new();
+
         static void Main(string[] args)
         {
             Log.Logger = new LoggerConfiguration()
@@ -463,5 +466,8 @@ namespace ConsoleAppAPI_II_GigaChat
         record ChatResponse(List<Choice> Choices);  // Модель ответа от GigaChat
         record Choice(ChatMessage Message); // Один вариант ответа (выбор)      
         record FunctionDef(string Name, string Description, object Parameters); // Описание функции для модели: имя, что делает, и схема параметров (JSON Schema).
+                
+        record StudyTopic(string Title, string Priority, string? Note, bool Studied = false); // Тема в плане изучения. Studied ставит функция mark_studied; изученные темы —
+        // задел для Дня 3 (поиск по смыслу «повтори пройденное»).
     }
 }
