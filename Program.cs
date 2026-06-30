@@ -5,6 +5,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Net.Http;
 
 namespace ConsoleAppAPI_II_GigaChat
 {
@@ -182,9 +183,29 @@ namespace ConsoleAppAPI_II_GigaChat
             }
         }
 
-        static string AskGigaChat(List<ChatMessage> history, string accessToken, string chatUrl, List<FunctionDef> functions)
+        static ChatMessage AskGigaChat(List<ChatMessage> history, string accessToken, string chatUrl, List<FunctionDef> functions)
         {
+            var body = new ChatRequest("GigaChat", history, functions, FunctionCallMode: "auto");
 
+            ChatResponse result = PostChat(body, accessToken, _httpClient, chatUrl);
+
+            return result!.Choices[0].Message;
+        }
+
+        private static ChatResponse PostChat(ChatRequest body, string accessToken, HttpClient httpClient, string chatUrl) // Сериализует тело запроса в JSON, выполняет POST-запрос к указанному URL с авторизацией, проверяет успешность и десериализует ответ в ChatResponse
+        {
+            string json = JsonSerializer.Serialize(body, JsonOpts);
+
+            using var request = new HttpRequestMessage(HttpMethod.Post, chatUrl)
+            {
+                Content = new StringContent(json, Encoding.UTF8, "application/json"),
+            };
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+            using var response = httpClient.Send(request);
+            response.EnsureSuccessStatusCode();
+
+            return JsonSerializer.Deserialize<ChatResponse>(ReadBody(response), JsonOpts)!;
         }
 
         static string AskGigaChat(List<ChatMessage> history, string accessToken, string chatUrl) // Метод отправки запроса к чат-модели GigaChat
@@ -193,26 +214,20 @@ namespace ConsoleAppAPI_II_GigaChat
 
             try
             {
-                string json = JsonSerializer.Serialize(new ChatRequest("GigaChat", history), JsonOpts); // Сериализуем объект запроса в JSON-строку
+                var body = new ChatRequest("GigaChat", history); // Создаём тело запроса без функций (для обычного разговора)
 
-                
-                using var request = new HttpRequestMessage(HttpMethod.Post, chatUrl) // Создаём POST-запрос с JSON-телом
+                ChatResponse response = PostChat(body, accessToken, _httpClient, chatUrl); // Вызываем общий метод отправки 
+
+                if (response?.Choices is { Count: > 0 } && response.Choices[0].Message is not null) // Безопасно извлекаем контент
                 {
-                    Content = new StringContent(json, Encoding.UTF8, "application/json"), // Cодержанием запроса будет тот json файл, который мы сериализовали
-                };
-
-
-                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken); // Добавляем токен авторизации в заголовок Authorization
-
-                using var response = _httpClient.Send(request); // Отправляем запрос и получаем ответ
-                Log.Debug("Получен ответ от GigaChat. StatusCode: {StatusCode}", response.StatusCode);
-
-                response.EnsureSuccessStatusCode(); // Проверяем, что статус ответа успешный (200)
-
-                var result = JsonSerializer.Deserialize<ChatResponse>(ReadBody(response), JsonOpts); // Десериализуем тело ответа в объект ChatResponse
-                Log.Debug("Ответ успешно десериализован");
-
-                return result!.Choices[0].Message.Content; // Возвращаем содержимое первого сообщения от ассистента
+                    string content = response.Choices[0].Message.Content;
+                    Log.Debug("Ответ успешно десериализован");
+                    return content;
+                }
+                else
+                {
+                    throw new InvalidOperationException("GigaChat вернул пустой ответ или без choices");
+                }       
             }
             catch(Exception ex)
             {
