@@ -7,6 +7,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Net.Http;
 using System.Numerics;
+using System;
 
 namespace ConsoleAppAPI_II_GigaChat
 {
@@ -22,7 +23,7 @@ namespace ConsoleAppAPI_II_GigaChat
         private static readonly List<StudyTopic> plan = new();
 
         // ── ТЕСТОВАЯ БАЗА ЗНАНИЙ ──────────────────────────────────────────────────────────
-        //  Наши «документы» — короткие заметки по C# для проверки процесса эмбендинга. 
+        //  Документы представляют собой короткие заметки по C# для проверки процесса эмбендинга. 
         
         private static readonly KnowledgeDoc[] Knowledge =
         {
@@ -70,6 +71,18 @@ namespace ConsoleAppAPI_II_GigaChat
             var authUrl = configuration["GigaChat:AuthUrl"];
 
             var accessToken = GetAccessToken(authKey, authUrl); // Получаем временный токен доступа (Bearer) по ключу
+
+
+            // (1) ИНДЕКСАЦИЯ. Прогоняем 1 раз все заметки в тестовой базе знаний через эмбеддинги и запоминаем
+            //     пары {заметка, вектор}. Это хранилище для поиска. Делаем ОДНИМ
+            //     батч-запросом — список текстов разом (один поход в сеть на всю базу).
+            Console.WriteLine($"Индексирую базу знаний ({Knowledge.Length} заметок)...");
+            float[][] vectors = Embed(Knowledge.Select(d => $"{d.Title}. {d.Text}").ToList(), accessToken);
+
+            var knowledgeIndexes = new List<Indexed>();
+            for (int i = 0; i < Knowledge.Length; i++)
+                knowledgeIndexes.Add(new Indexed(Knowledge[i], vectors[i]));
+            Console.WriteLine($"Готово: {knowledgeIndexes.Count} заметок, размерность вектора смысла — {vectors[0].Length}.\n");
 
             Console.WriteLine("Готово!\n");
             Console.WriteLine("=== ИИ-наставник по C#: ведёт план изучения и сам проверяет тестами ===");
