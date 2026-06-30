@@ -6,6 +6,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Net.Http;
+using System.Numerics;
 
 namespace ConsoleAppAPI_II_GigaChat
 {
@@ -215,10 +216,116 @@ namespace ConsoleAppAPI_II_GigaChat
             return result.Choices[0].Message.Content ?? "";
         }
 
+        // ─────────────────────────────────────────────────────────────────────────
+        //  ВЫПОЛНЕНИЕ ФУНКЦИЙ, которые захотела вызвать модель.
+        //  Возвращаем результат JSON-строкой — её увидит модель.
+        // ─────────────────────────────────────────────────────────────────────────
+        private static string ExecuteFunction(FunctionCall call, string accessToken)
+        {
+            switch (call.Name)
+            {
+                case "add_topic":
+                    {
+                        // Аргументы у GigaChat приходят ОБЪЕКТОМ — читаем поля из JsonElement.
+                        JsonElement a = call.Arguments;
+                        string title = GetStr(a, "title") ?? "(без названия)";
+                        string priority = GetStr(a, "priority") ?? "средний";
+                        string? note = GetStr(a, "note");
 
+                        plan.Add(new StudyTopic(title, priority, note));
+                        Console.WriteLine($"  [добавил в план: {title}]");
+                        return JsonSerializer.Serialize(new { status = "ok", added = title, total = plan.Count }, JsonOpts);
+                    }
 
+                case "list_topics":
+                    Console.WriteLine("  [показываю план]");
+                    return JsonSerializer.Serialize(
+                    new { topics = plan, total = plan.Count, studied = plan.Count(t => t.Studied) }, JsonOpts);
 
+                case "mark_studied":
+                    {
+                        string title = GetStr(call.Arguments, "title") ?? "";
+                        // Модель могла слегка переформулировать тему — ищем по вхождению без учёта регистра.
+                        int idx = plan.FindIndex(t => t.Title.Contains(title, StringComparison.OrdinalIgnoreCase));
+                        if (idx >= 0)
+                        {
+                            plan[idx] = plan[idx] with { Studied = true };   // record + with: новый экземпляр, Studied=true
+                            Console.WriteLine($"  [отметил изученным: {plan[idx].Title}]");
+                        }
+                        return JsonSerializer.Serialize(
+                            new { status = idx >= 0 ? "ok" : "not_found", title, studied = idx >= 0 }, JsonOpts);
+                    }
 
+                // ── ТОЧКА СОЕДИНЕНИЯ ДВУХ ТЕХНИК ──────────────────────────────────
+                //  Function Calling решил ЗАПУСТИТЬ тест (quiz_me), а форму вопроса
+                //  гарантирует СТРУКТУРИРОВАННЫЙ ВЫВОД: внутри зовём GenerateQuiz.
+                case "quiz_me":
+                    {
+                        string topic = GetStr(call.Arguments, "topic") ?? "C#";
+                        Console.WriteLine($"\n  [запускаю тест по теме: {topic}]");
+
+                        // (1) Структурированный вывод как ДВИЖОК инструмента: отдельный запрос
+                        //     к модели за строгим JSON по схеме QuizQuestion (+ StripJsonFences).
+                        //     Модель иногда присылает кривой JSON (хвостовая запятая, лишний текст) —
+                        //     оборачиваем в try/catch, чтобы один тест не уронил весь чат.
+                        QuizQuestion quiz;
+                        try
+                        {
+                            quiz = GenerateQuiz(topic, accessToken);
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"  [не удалось собрать тест: {ex.Message}]\n");
+                            return JsonSerializer.Serialize(
+                                new { topic, error = "Не удалось сгенерировать корректный тест. Предложи попробовать ещё раз." }, JsonOpts);
+                        }
+
+                        // Подстраховка от кривого ответа: нет вариантов / индекс вне диапазона.
+                        if (quiz.Options is not { Length: > 0 })
+                        {
+                            Console.WriteLine("  [тест пришёл без вариантов ответа]\n");
+                            return JsonSerializer.Serialize(
+                                new { topic, error = "Тест без вариантов. Предложи попробовать ещё раз." }, JsonOpts);
+                        }
+                        int correctIndex = quiz.CorrectIndex >= 0 && quiz.CorrectIndex < quiz.Options.Length
+                            ? quiz.CorrectIndex : 0;
+
+                        // Источник вопроса — живая генерация (структурированный вывод по схеме).
+                        Console.WriteLine("  [вопрос сгенерирован вживую — структурированный вывод по схеме]");
+
+                        // (2) Показываем тест ученику.
+                        Console.WriteLine($"❓ {quiz.Question}");
+                        for (int i = 0; i < quiz.Options.Length; i++)
+                            Console.WriteLine($"    {i + 1}. {quiz.Options[i]}");
+
+                        // (3) Читаем ответ ученика (блокирующий ReadLine прямо в обработчике —
+                        //     учебное упрощение: формально мы всё ещё «выполняем функцию»).
+                        Console.Write("Твой ответ (1-4): ");
+                        bool parsed = int.TryParse(Console.ReadLine(), out int num);
+                        bool correct = parsed && num - 1 == correctIndex;
+
+                        // (4) Мгновенный фидбэк ученику.
+                        Console.WriteLine(correct ? "✅ Верно!" : "❌ Неверно.");
+                        Console.WriteLine($"   Разбор: {quiz.Explanation}\n");
+
+                        // (5) Возвращаем модели структурный вердикт — она прокомментирует
+                        //     и сможет предложить mark_studied / add_topic.
+                        return JsonSerializer.Serialize(new
+                        {
+                            topic,
+                            question = quiz.Question,
+                            userAnswer = parsed ? num : (int?)null,
+                            correct,
+                            correctOption = quiz.Options[correctIndex],
+                            explanation = quiz.Explanation,
+                        }, JsonOpts);
+                    }
+
+                default:
+                    // Модель попросила функцию, которой у нас нет — честно говорим об этом.
+                    return JsonSerializer.Serialize(new { error = $"Неизвестная функция: {call.Name}" }, JsonOpts);
+            }
+        }
 
         static ChatMessage AskGigaChat(List<ChatMessage> history, string accessToken, string chatUrl, List<FunctionDef> functions)
         {
