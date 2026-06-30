@@ -327,6 +327,15 @@ namespace ConsoleAppAPI_II_GigaChat
             }
         }
 
+        private static string? GetStr(JsonElement obj, string field) // берёт JSON элемент и достаёт из него значение свойства, если его тип sting иначе возвращает null
+        {
+            return obj.ValueKind == JsonValueKind.Object
+                   && obj.TryGetProperty(field, out var v)
+                   && v.ValueKind == JsonValueKind.String
+                    ? v.GetString()
+                    : null;
+        }
+
         static ChatMessage AskGigaChat(List<ChatMessage> history, string accessToken, string chatUrl, List<FunctionDef> functions)
         {
             var body = new ChatRequest("GigaChat", history, functions, FunctionCallMode: "auto");
