@@ -114,13 +114,16 @@ namespace ConsoleAppAPI_II_GigaChat
                     }),
 
                 new("quiz_me",
-                    "Проводит мини-тест (1 вопрос с 4 вариантами) по заданной теме C# и проверяет ответ ученика.",
+                    "Проводит мини-тест по заданной теме C# (количество вариантов зависит от сложности: easy – 3, medium – 4, hard – 5). " +
+                    "Ученик видит вопрос, варианты и вводит номер ответа. Программа возвращает результат и пояснение.",
                     new
                     {
                         type = "object",
                         properties = new
                         {
                             topic = new { type = "string", description = "Тема теста, напр. «разница между struct и class»" },
+                            difficulty = new { type = "string", @enum = new [] { "easy", "medium", "hard" },
+                                               description = "Желаемая слодность теста (по-умолчанию medium)"}
                         },
                         required = new[] { "topic" },
                     }),
@@ -265,7 +268,16 @@ namespace ConsoleAppAPI_II_GigaChat
                 case "quiz_me":
                     {
                         string topic = GetStr(call.Arguments, "topic") ?? "C#";
-                        Console.WriteLine($"\n  [запускаю тест по теме: {topic}]");
+
+                        string difficulty = GetStr(call.Arguments, "difficulty") ?? "medium";
+                        difficulty = difficulty switch
+                        {
+                            "easy" => "easy",
+                            "hard" => "hard",
+                            _ => "medium"
+                        };
+
+                        Console.WriteLine($"\n  [запускаю тест по теме: {topic}, сложность: {difficulty}]");
 
                         // (1) Структурированный вывод как ДВИЖОК инструмента: отдельный запрос
                         //     к модели за строгим JSON по схеме QuizQuestion (+ StripJsonFences).
@@ -274,7 +286,7 @@ namespace ConsoleAppAPI_II_GigaChat
                         QuizQuestion quiz;
                         try
                         {
-                            quiz = GenerateQuiz(topic, accessToken, chatUrl);
+                            quiz = GenerateQuiz(topic, accessToken, chatUrl, difficulty);
                         }
                         catch (Exception ex)
                         {
@@ -303,9 +315,9 @@ namespace ConsoleAppAPI_II_GigaChat
 
                         // (3) Читаем ответ ученика (блокирующий ReadLine прямо в обработчике —
                         //     учебное упрощение: формально мы всё ещё «выполняем функцию»).
-                        Console.Write("Твой ответ (1-4): ");
+                        Console.Write($"Твой ответ (1-{quiz.Options.Length}): ");
                         bool parsed = int.TryParse(Console.ReadLine(), out int num);
-                        bool correct = parsed && num - 1 == correctIndex;
+                        bool correct = parsed && num >= 1 && num <= quiz.Options.Length && num - 1 == quiz.CorrectIndex;
 
                         // (4) Мгновенный фидбэк ученику.
                         Console.WriteLine(correct ? "✅ Верно!" : "❌ Неверно.");
@@ -337,29 +349,53 @@ namespace ConsoleAppAPI_II_GigaChat
         //  гарантирует ФОРМУ (4 варианта + индекс верного), но НЕ правильность фактов:
         //  по слабым для модели темам вопрос может выйти с шероховатостями — для демо ок.
         // ─────────────────────────────────────────────────────────────────────────
-        private static QuizQuestion GenerateQuiz(string topic, string accessToken, string chatUrl)
+        private static QuizQuestion GenerateQuiz(string topic, string accessToken, string chatUrl, string difficulty = "medium")
         {
 
             // Системный промпт генератора теста: держим модель в её зоне — факты языка C#
             // (ключевые слова, типы, синтаксис, операторы, коллекции, строки, ООП) — и
-            // задаём строгую JSON-схему ответа. Это и есть «управление моделью» из Дня 2.
-            const string GeneratorSystemPrompt =
-                "Ты — генератор тест-вопросов про язык C# для начинающих. " +
-                "Спрашивай про факты самого языка и базовой библиотеки .NET: ключевые слова (var, const, readonly, static, ref, out), " +
-                "типы и их различия (struct и class, значимые и ссылочные, nullable), синтаксис, поведение операторов, " +
-                "базовые коллекции (List<T>, Dictionary<TKey,TValue>), строки, исключения, ООП в C#. " +
-                "Сначала ВЫБЕРИ один факт, в котором уверен, сделай его верным ответом, затем придумай 3 правдоподобных, но неверных. " +
-                "Вопрос должен быть КОНКРЕТНЫМ (про конкретное ключевое слово, тип или метод), а не общим рассуждением. " +
-                "Верни ТОЛЬКО JSON-объект по схеме:\n" +
-                "{ \"question\": строка, \"options\": [ровно 4 строки], \"correctIndex\": число 0..3, \"explanation\": строка }\n" +
-                "correctIndex — позиция верного варианта в options, нумерация с НУЛЯ. explanation объясняет именно options[correctIndex]. " +
-                "Ровно один верный вариант, остальные три неверны. Без markdown, без текста до или после JSON.";
+            // задаём строгую JSON-схему ответа. Это и есть «управление моделью».
+            string systemPrompt = difficulty switch
+            {
+                "easy" =>
+                    "Ты — генератор простых тест-вопросов для начинающих C#. " +
+                    "Задавай только элементарные вопросы про ключевые слова, базовый синтаксис и простые типы. " +
+                    "Варианты ответов должны быть очевидными, объяснения краткими. " +
+                    "Верни ТОЛЬКО JSON-объект по схеме:\n" +
+                    "{ \"question\": строка, \"options\": [ровно 3 строки], \"correctIndex\": число 0..2, \"explanation\": строка }\n" +
+                    "correctIndex — позиция верного варианта, нумерация с НУЛЯ. Без markdown, без лишнего текста.",
 
+                "hard" =>
+                    "Ты — генератор сложных тест-вопросов по C#. " +
+                    "Задавай углублённые вопросы про внутреннее устройство языка, нюансы (ref/in/out, Span<T>, аллокации, boxing, замыкания, работа GC, многопоточность). " +
+                    "Варианты ответов должны быть коварными, но строго один верный. " +
+                    "Верни ТОЛЬКО JSON-объект по схеме:\n" +
+                    "{ \"question\": строка, \"options\": [ровно 5 строк], \"correctIndex\": число 0..4, \"explanation\": строка }\n" +
+                    "correctIndex — позиция верного варианта, нумерация с НУЛЯ. explanation подробно разъясняет верный ответ.",
 
+                _ => // medium по умолчанию
+                    "Ты — генератор тест-вопросов про язык C# для начинающих. " +
+                    "Спрашивай про факты самого языка и базовой библиотеки .NET: ключевые слова (var, const, readonly, static, ref, out), " +
+                    "типы и их различия (struct и class, значимые и ссылочные, nullable), синтаксис, поведение операторов, " +
+                    "базовые коллекции (List<T>, Dictionary<TKey,TValue>), строки, исключения, ООП в C#. " +
+                    "Сначала ВЫБЕРИ один факт, в котором уверен, сделай его верным ответом, затем придумай 3 правдоподобных, но неверных. " +
+                    "Вопрос должен быть КОНКРЕТНЫМ (про конкретное ключевое слово, тип или метод), а не общим рассуждением. " +
+                    "Верни ТОЛЬКО JSON-объект по схеме:\n" +
+                    "{ \"question\": строка, \"options\": [ровно 4 строки], \"correctIndex\": число 0..3, \"explanation\": строка }\n" +
+                    "correctIndex — позиция верного варианта в options, нумерация с НУЛЯ. explanation объясняет именно options[correctIndex]. " +
+                    "Ровно один верный вариант, остальные три неверны. Без markdown, без текста до или после JSON."
+            };
+
+            double temp = difficulty switch
+            {
+                "easy" => 0.3,
+                "hard" => 0.5,
+                _ => 0.2
+            };
 
             var messages = new List<ChatMessage>
             {
-                new("system", GeneratorSystemPrompt),
+                new("system", systemPrompt),
                 // FEW-SHOT: один образец задаёт И форму JSON, И стиль (конкретный факт языка).
                 //new("user", "Тема для теста (про язык C#): ключевое слово var"),
                 //new("assistant",
@@ -375,7 +411,7 @@ namespace ConsoleAppAPI_II_GigaChat
             // Низкая температура: строгому вопросу нужна предсказуемость, а не фантазия.
             // Иногда модель оборачивает JSON в ```json ... ``` — срежем «забор».
             //string clean = StripJsonFences(AskRaw(messages, temperature: 0.2));
-            string clean = AskRaw(messages, accessToken, chatUrl, temperature: 0.2);
+            string clean = AskRaw(messages, accessToken, chatUrl, temperature: temp);
 
             // Кривой JSON бросит из Deserialize, пустой ("null") — поймаем через ??.
             // Любую ошибку перехватит обработчик quiz_me и попросит модель повторить.
