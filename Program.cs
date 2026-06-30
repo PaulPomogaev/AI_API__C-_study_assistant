@@ -467,7 +467,8 @@ namespace ConsoleAppAPI_II_GigaChat
         record Choice(ChatMessage Message); // Один вариант ответа (выбор)      
         record FunctionDef(string Name, string Description, object Parameters); // Описание функции для модели: имя, что делает, и схема параметров (JSON Schema).
                 
-        record StudyTopic(string Title, string Priority, string? Note, bool Studied = false); // Тема в плане изучения. Studied ставит функция mark_studied; изученные темы —
-        // задел для Дня 3 (поиск по смыслу «повтори пройденное»).
+        record StudyTopic(string Title, string Priority, string? Note, bool Studied = false); // Тема в плане изучения. Studied ставит функция mark_studied; изученные темы — поиск по смыслу «повтори пройденное».
+
+        record QuizQuestion(string Question, string[] Options, int CorrectIndex, string Explanation); // Тест-вопрос, который достаём структурированным выводом в GenerateQuiz (движок инструмента quiz_me).
     }
 }
